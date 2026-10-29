@@ -8,7 +8,7 @@ import {
   BUFFERED_AMOUNT_LOW_THRESHOLD,
   BUFFERED_AMOUNT_HIGH_WATERMARK,
 } from "@/types/protocol";
-import { getRtcConfiguration, fetchRtcConfiguration, detectConnectionMode } from "./iceConfig";
+import { getRtcConfiguration, fetchRtcConfiguration, detectConnectionMode, detectConnectionTier } from "./iceConfig";
 import { generateSalt, verifyHmac } from "./crypto";
 
 interface PeerSession {
@@ -221,9 +221,17 @@ export class WebRtcHostEngine {
     // Periodic connection mode & telemetry monitor
     session.statsInterval = setInterval(async () => {
       if (this.isDestroyed || !this.peers.has(peerId)) return;
-      const mode = await detectConnectionMode(pc);
-      if (session.state.connectionType !== mode && mode !== "unknown") {
-        session.state.connectionType = mode;
+      const tier = await detectConnectionTier(pc);
+      let changed = false;
+      if (session.state.natTier !== tier && tier !== "unknown") {
+        session.state.natTier = tier;
+        session.state.connectionType = tier === "tier3_turn" ? "relay" : "p2p";
+        changed = true;
+      }
+      if (session.dataChannel) {
+        session.state.bufferedAmount = session.dataChannel.bufferedAmount;
+      }
+      if (changed) {
         this.broadcastPeersUpdate();
       }
       this.calculatePeerSpeed(session);
@@ -395,12 +403,17 @@ export class WebRtcHostEngine {
 
         // Strict SCTP Backpressure: Pause loop when buffer is full
         if (dataChannel.bufferedAmount >= BUFFERED_AMOUNT_HIGH_WATERMARK) {
+          session.state.isValvePaused = true;
+          session.state.bufferedAmount = dataChannel.bufferedAmount;
+          this.throttledBroadcast();
           await new Promise<void>((resolve) => {
             const onBufferedAmountLow = () => {
               dataChannel.removeEventListener(
                 "bufferedamountlow",
                 onBufferedAmountLow
               );
+              session.state.isValvePaused = false;
+              session.state.bufferedAmount = dataChannel.bufferedAmount;
               resolve();
             };
             dataChannel.addEventListener("bufferedamountlow", onBufferedAmountLow);
@@ -432,6 +445,7 @@ export class WebRtcHostEngine {
         );
 
         dataChannel.send(frameBuffer);
+        session.state.bufferedAmount = dataChannel.bufferedAmount;
 
         offset += chunkArrayBuffer.byteLength;
         session.currentByteOffset = offset;
@@ -545,9 +559,34 @@ export class WebRtcHostEngine {
     }
   }
 
+  private lastBroadcastMs = 0;
+  private throttledBroadcast() {
+    const now = Date.now();
+    if (now - this.lastBroadcastMs >= 200) {
+      this.lastBroadcastMs = now;
+      this.broadcastPeersUpdate();
+    }
+  }
+
+  public getPeerTelemetry(peerId: string): PeerTransferState | null {
+    const session = this.peers.get(peerId);
+    if (!session) return null;
+    return {
+      ...session.state,
+      bufferedAmount: session.dataChannel ? session.dataChannel.bufferedAmount : 0,
+      isValvePaused: session.dataChannel
+        ? session.dataChannel.bufferedAmount >= BUFFERED_AMOUNT_HIGH_WATERMARK
+        : false,
+    };
+  }
+
   private broadcastPeersUpdate() {
     const peerStates = Array.from(this.peers.values()).map((p) => ({
       ...p.state,
+      bufferedAmount: p.dataChannel ? p.dataChannel.bufferedAmount : 0,
+      isValvePaused: p.dataChannel
+        ? p.dataChannel.bufferedAmount >= BUFFERED_AMOUNT_HIGH_WATERMARK
+        : false,
     }));
     this.callbacks.onPeerUpdate(peerStates);
   }

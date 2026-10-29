@@ -1,12 +1,48 @@
+import { useState, useEffect } from "react";
+
 /**
  * Hardware & UX Safeguards:
  * 1. Screen Wake Lock API to prevent devices from sleeping during large transfers.
  * 2. beforeunload listener to warn users against accidental tab closures.
+ * 3. Reactive state subscription for UI telemetry indicators.
  */
+
+let activeLocksCount = 0;
+const wakeLockListeners = new Set<(active: boolean) => void>();
+
+function notifyWakeLockListeners() {
+  const isActive = activeLocksCount > 0;
+  wakeLockListeners.forEach((listener) => {
+    try {
+      listener(isActive);
+    } catch (e) {
+      console.warn("Error in wakeLock listener:", e);
+    }
+  });
+}
+
+export function subscribeWakeLock(listener: (active: boolean) => void): () => void {
+  wakeLockListeners.add(listener);
+  listener(activeLocksCount > 0);
+  return () => {
+    wakeLockListeners.delete(listener);
+  };
+}
+
+export function useWakeLockStatus(): boolean {
+  const [isActive, setIsActive] = useState<boolean>(activeLocksCount > 0);
+
+  useEffect(() => {
+    return subscribeWakeLock(setIsActive);
+  }, []);
+
+  return isActive;
+}
 
 export class ScreenWakeLockManager {
   private sentinel: any = null;
   private isRequested: boolean = false;
+  private hasCounted: boolean = false;
   private onVisibilityChangeBound: () => void;
 
   constructor() {
@@ -21,12 +57,24 @@ export class ScreenWakeLockManager {
 
     try {
       this.sentinel = await (navigator as any).wakeLock.request("screen");
+      if (!this.hasCounted) {
+        activeLocksCount++;
+        this.hasCounted = true;
+        notifyWakeLockListeners();
+      }
+
       this.sentinel.addEventListener("release", () => {
+        if (this.hasCounted) {
+          activeLocksCount = Math.max(0, activeLocksCount - 1);
+          this.hasCounted = false;
+          notifyWakeLockListeners();
+        }
         // If release was unexpected and still requested, try re-acquiring on next focus
         if (this.isRequested) {
           this.sentinel = null;
         }
       });
+
       document.addEventListener("visibilitychange", this.onVisibilityChangeBound);
       return true;
     } catch (err) {
@@ -38,6 +86,11 @@ export class ScreenWakeLockManager {
   public async release(): Promise<void> {
     this.isRequested = false;
     document.removeEventListener("visibilitychange", this.onVisibilityChangeBound);
+    if (this.hasCounted) {
+      activeLocksCount = Math.max(0, activeLocksCount - 1);
+      this.hasCounted = false;
+      notifyWakeLockListeners();
+    }
     if (this.sentinel) {
       try {
         await this.sentinel.release();
@@ -75,4 +128,3 @@ export function setupBeforeUnloadGuard(isBusyCheck: () => boolean): () => void {
     window.removeEventListener("beforeunload", handleBeforeUnload);
   };
 }
-

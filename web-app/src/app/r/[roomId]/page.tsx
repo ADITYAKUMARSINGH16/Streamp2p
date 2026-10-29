@@ -10,6 +10,7 @@ import {
   Pause,
   Play,
   Wifi,
+  Globe,
   ShieldAlert,
   CheckCircle2,
   AlertCircle,
@@ -24,6 +25,10 @@ import {
   ArrowLeft,
   SunMedium,
   Sparkles,
+  Cpu,
+  Clock,
+  Activity,
+  Layers,
 } from "lucide-react";
 
 import { PinModal } from "@/components/PinModal";
@@ -45,8 +50,9 @@ function ReceiverPageContent() {
   const roomId = params.roomId as string;
 
   // Connection & Auth state
-  const [statusMessage, setStatusMessage] = useState<string>("Connecting...");
+  const [statusMessage, setStatusMessage] = useState<string>("Connecting to Signaling...");
   const [connectionMode, setConnectionMode] = useState<PeerConnectionMode>("unknown");
+  const [iceState, setIceState] = useState<RTCIceConnectionState | null>(null);
   const [isPinModalOpen, setIsPinModalOpen] = useState<boolean>(false);
   const [pinError, setPinError] = useState<string | undefined>(undefined);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -66,8 +72,17 @@ function ReceiverPageContent() {
   // Hardware wake lock
   const [isWakeLockActive, setIsWakeLockActive] = useState<boolean>(false);
 
+  // Native File System Access API capability check
+  const [hasNativeFSA, setHasNativeFSA] = useState<boolean>(true);
+
   const clientEngineRef = useRef<WebRtcClientEngine | null>(null);
   const wakeLockRef = useRef<ScreenWakeLockManager | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setHasNativeFSA("showSaveFilePicker" in window);
+    }
+  }, []);
 
   // Guard against closing tab while downloading
   useEffect(() => {
@@ -92,6 +107,7 @@ function ReceiverPageContent() {
     const engine = new WebRtcClientEngine(roomId, socket, {
       onStatusChange: (status) => setStatusMessage(status),
       onConnectionMode: (mode) => setConnectionMode(mode),
+      onIceStateChange: (state) => setIceState(state),
       onPinRequired: (_salt) => {
         setIsPinModalOpen(true);
       },
@@ -118,8 +134,8 @@ function ReceiverPageContent() {
         setIsDownloading(false);
         try {
           confetti({
-            particleCount: 100,
-            spread: 70,
+            particleCount: 120,
+            spread: 80,
             origin: { y: 0.6 },
           });
         } catch (e) {}
@@ -205,66 +221,96 @@ function ReceiverPageContent() {
   };
 
   return (
-    <div className="w-full max-w-4xl mx-auto px-4 py-8 md:py-12 space-y-8">
-      {/* PIN Challenge Modal */}
+    <div className="w-full max-w-5xl mx-auto px-4 py-8 md:py-12 space-y-6">
+      {/* Cryptographic PIN Challenge Modal */}
       <PinModal
         isOpen={isPinModalOpen}
         onSubmit={handlePinSubmit}
         errorMessage={pinError}
       />
 
-      {/* Top Navigation */}
-      <div className="flex items-center justify-between">
+      {/* Top Console Navigation & Traversal Badges */}
+      <div className="flex flex-wrap items-center justify-between gap-3 pb-2 border-b border-white/[0.06]">
         <Link
           href="/"
-          className="inline-flex items-center gap-2 text-xs font-medium text-slate-400 hover:text-slate-200 transition"
+          className="inline-flex items-center gap-2 text-xs font-mono text-slate-400 hover:text-cyan-300 transition"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span>Back to Home</span>
+          <span>BACK TO COCKPIT</span>
         </Link>
 
-        {/* Live Network & Wake Lock Status */}
-        <div className="flex items-center gap-2">
-          {isWakeLockActive && (
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Active Disk Write Pipeline Badge */}
+          {hasNativeFSA ? (
             <span
-              className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/20"
-              title="Screen Wake Lock is active"
+              className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider bg-emerald-500/15 text-emerald-400 border border-emerald-500/35 shadow-[0_0_12px_rgba(16,185,129,0.2)]"
+              title="HTML5 File System Access API: direct disk streaming without intermediate memory buffering"
             >
+              <HardDrive className="w-3.5 h-3.5 text-emerald-400" />
+              <span>NATIVE DISK STREAM // ZERO-RAM WRITE</span>
+            </span>
+          ) : (
+            <span
+              className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider bg-amber-500/15 text-amber-300 border border-amber-500/35"
+              title="Service Worker ReadableStream interception for Safari / Firefox direct disk pipes"
+            >
+              <DownloadCloud className="w-3.5 h-3.5 text-amber-400" />
+              <span>SW STREAM CONDUIT // DIRECT DOWNLOAD</span>
+            </span>
+          )}
+
+          {/* Network Connection Mode Badge */}
+          {connectionMode === "p2p" ? (
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase bg-[#00F0FF]/15 text-[#00F0FF] border border-[#00F0FF]/35">
+              <Wifi className="w-3 h-3 text-[#00F0FF]" />
+              <span>DIRECT P2P LINK</span>
+            </span>
+          ) : connectionMode === "relay" ? (
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase bg-amber-500/15 text-amber-300 border border-amber-500/35">
+              <ShieldAlert className="w-3 h-3 text-amber-400" />
+              <span>TURN 443 RELAY</span>
+            </span>
+          ) : null}
+
+          {/* Wake Lock Active Badge */}
+          {isWakeLockActive && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
               <SunMedium className="w-3 h-3 text-amber-400" />
-              Wake Lock
-            </span>
-          )}
-
-          {connectionMode === "p2p" && (
-            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-              <Wifi className="w-3.5 h-3.5 text-emerald-400" />
-              Direct P2P
-            </span>
-          )}
-
-          {connectionMode === "relay" && (
-            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/20">
-              <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
-              TURN Relay
+              <span>WAKE LOCK</span>
             </span>
           )}
         </div>
       </div>
 
+      {/* Temporary ICE Disconnected Grace Period Recovery Banner */}
+      {iceState === "disconnected" && !hostDisconnected && (
+        <div className="p-4 rounded-xl bg-amber-500/15 border border-amber-500/35 text-xs text-amber-200 flex items-center gap-3 animate-in fade-in duration-200 shadow-[0_0_20px_rgba(245,158,11,0.2)]">
+          <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 animate-pulse" />
+          <div className="flex-1">
+            <p className="font-mono font-bold text-amber-300 uppercase tracking-wider">
+              RE-BINDING ICE / TURN RELAY (10s GRACE)...
+            </p>
+            <p className="text-[11px] text-amber-200/80 mt-0.5 font-mono">
+              Temporary mobile or network handoff detected. WebRTC is negotiating alternate STUN/TURN paths without corrupting in-flight disk chunks.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Host Disconnected Alert */}
       {hostDisconnected && (
-        <div className="p-5 rounded-2xl bg-rose-500/10 border border-rose-500/20 space-y-2 text-center">
+        <div className="p-6 rounded-2xl bg-rose-500/15 border border-rose-500/30 space-y-3 text-center animate-in fade-in duration-300">
           <AlertCircle className="w-8 h-8 text-rose-400 mx-auto" />
-          <h3 className="text-base font-bold text-rose-200">
+          <h3 className="text-base font-bold font-sans text-rose-200">
             Sender Tab Was Closed
           </h3>
-          <p className="text-xs text-rose-300/80 max-w-md mx-auto">
-            Because this application uses zero cloud storage, files only stream while the sender has their browser open.
+          <p className="text-xs text-rose-300/80 max-w-md mx-auto font-sans leading-relaxed">
+            StreamP2P operates with strictly zero cloud storage. Slices stream directly from the sender&apos;s open tab. Because the sender closed their tab, the ephemeral session has terminated.
           </p>
           <div className="pt-2">
             <Link
               href="/"
-              className="px-4 py-2 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 text-xs font-semibold transition inline-block"
+              className="px-5 py-2.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 text-xs font-mono font-bold transition inline-block border border-rose-500/30"
             >
               Start New Transfer
             </Link>
@@ -274,120 +320,117 @@ function ReceiverPageContent() {
 
       {/* General Error Message */}
       {errorMessage && !hostDisconnected && (
-        <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 text-center">
+        <div className="p-4 rounded-xl bg-rose-500/15 border border-rose-500/30 text-xs font-mono text-rose-300 text-center">
           {errorMessage}
         </div>
       )}
 
-      {/* Main Download Card */}
-      <div className="bg-surface-card border border-surface-border rounded-2xl p-6 sm:p-8 shadow-2xl space-y-6">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-surface-border">
+      {/* Main Conduit Receiver Console */}
+      <div className="frosted-carbon border border-white/[0.08] rounded-2xl p-6 sm:p-8 shadow-2xl space-y-6">
+        
+        {/* Header Block */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-white/[0.06]">
           <div>
-            <span className="text-xs font-mono text-brand-400 uppercase tracking-wider font-semibold">
-              Incoming Stream &bull; Room {roomId}
-            </span>
-            <h1 className="text-2xl font-bold text-slate-100 mt-1 flex items-center gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-mono text-cyan-400 uppercase tracking-wider font-bold">
+                DIRECT-TO-DISK STREAM RECEIVER // ROOM {roomId}
+              </span>
+            </div>
+
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-100 font-sans tracking-tight mt-1 flex items-center gap-2.5">
               {manifestFiles.length > 0 ? (
-                `${manifestFiles.length} ${manifestFiles.length === 1 ? "File" : "Files"} Ready`
+                `${manifestFiles.length} ${manifestFiles.length === 1 ? "File" : "Files"} Ready for Stream`
               ) : (
                 <>
-                  <Loader2 className="w-5 h-5 text-brand-400 animate-spin" />
-                  <span>Connecting to Sender...</span>
+                  <Loader2 className="w-6 h-6 text-[#00F0FF] animate-spin" />
+                  <span>Connecting to Sender Swarm...</span>
                 </>
               )}
             </h1>
-            <p className="text-xs text-slate-400 mt-1 flex items-center gap-1.5">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-brand-500"></span>
-              </span>
-              <span>Status: <strong className="text-brand-300 font-medium">{statusMessage}</strong></span>
-            </p>
 
-            {statusMessage.toLowerCase().includes("failed") && (
-              <div className="mt-3 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-200/90 space-y-2">
-                <p className="font-semibold flex items-center gap-1.5 text-amber-300">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  Direct Connection Blocked by Carrier/Firewall NAT
-                </p>
-                <p className="text-[11px] text-slate-300 leading-relaxed">
-                  Mobile carrier networks (5G/LTE) use Symmetric NAT which blocks direct P2P hole-punching unless a TURN relay is reached.
-                </p>
-                <div className="flex flex-wrap items-center gap-2 pt-1">
-                  <button
-                    onClick={() => window.location.reload()}
-                    className="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 active:scale-95 text-amber-200 font-semibold text-xs transition cursor-pointer"
-                  >
-                    Retry Handshake
-                  </button>
-                  <span className="text-[11px] text-slate-400">
-                    💡 If nearby, connect both devices to the <strong>same Wi-Fi</strong> for instant 100% direct speed.
-                  </span>
-                </div>
-              </div>
-            )}
+            <p className="text-xs font-mono text-slate-400 mt-1 flex items-center gap-2">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-[#00F0FF]" />
+              </span>
+              <span>
+                Status: <strong className="text-cyan-300 font-semibold">{statusMessage}</strong>
+              </span>
+            </p>
           </div>
 
           {manifestFiles.length > 0 && (
-            <div className="sm:text-right">
-              <span className="text-xs text-slate-400">Total Payload</span>
-              <p className="text-xl font-mono font-bold text-white">
+            <div className="sm:text-right font-mono">
+              <span className="text-xs text-slate-400 uppercase tracking-wider block">
+                Total Payload Size
+              </span>
+              <p className="text-2xl font-bold text-white tabular-nums">
                 {formatBytes(totalSize)}
               </p>
             </div>
           )}
         </div>
 
-        {/* Live Progress Card (During Active Download) */}
+        {/* Live Stream Telemetry & Throughput Card (During Active Download) */}
         {isDownloading && progressInfo && (
-          <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-700/60 space-y-4">
-            <div className="flex items-center justify-between text-xs">
-              <div className="space-y-0.5">
-                <p className="text-slate-400 font-medium">Currently Streaming:</p>
-                <p className="text-sm font-semibold text-slate-100 truncate max-w-xs sm:max-w-md">
+          <div className="p-5 rounded-2xl bg-black/60 border border-white/[0.08] space-y-4 shadow-xl">
+            <div className="flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
+              <div className="space-y-1">
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider block">
+                  Active Slice Conduit
+                </span>
+                <p className="text-sm font-semibold text-slate-100 truncate max-w-sm">
                   {progressInfo.fileName}
+                </p>
+                <p className="text-[11px] text-cyan-400 tabular-nums">
+                  [SLOT #{progressInfo.fileIndex.toString().padStart(2, "0")}] OFFSET: {formatBytes(progressInfo.fileBytesReceived)} / {formatBytes(progressInfo.fileTotalBytes)}
                 </p>
               </div>
 
-              <div className="text-right space-y-0.5">
-                <p className="font-mono text-base font-bold text-brand-300">
+              <div className="text-right space-y-1">
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider block">
+                  Throughput Rate
+                </span>
+                <p className="font-mono text-xl font-bold text-cyan-300 tabular-nums">
                   {formatSpeed(progressInfo.bytesPerSecond)}
                 </p>
-                <p className="text-slate-400 text-[11px] font-mono">
-                  ETA: {formatDuration(progressInfo.etaSeconds)}
+                <p className="text-slate-400 text-[11px] font-mono flex items-center justify-end gap-1 tabular-nums">
+                  <Clock className="w-3 h-3 text-slate-500" />
+                  <span>ETA: {formatDuration(progressInfo.etaSeconds)}</span>
                 </p>
               </div>
             </div>
 
-            {/* Progress Bar */}
-            <div className="space-y-1.5">
-              <div className="w-full bg-slate-950 rounded-full h-3 overflow-hidden border border-slate-800">
+            {/* Overall Progress Bar */}
+            <div className="space-y-1.5 font-mono">
+              <div className="w-full bg-black/80 rounded-full h-3 overflow-hidden border border-white/[0.08]">
                 <div
                   className={`h-full rounded-full transition-all duration-300 ${
                     isPaused
                       ? "bg-amber-500"
-                      : "bg-gradient-to-r from-brand-500 via-indigo-500 to-emerald-400"
+                      : "bg-gradient-to-r from-brand-600 via-indigo-500 to-[#00F0FF] shadow-[0_0_15px_#00F0FF]"
                   }`}
                   style={{ width: `${progressInfo.overallProgress}%` }}
                 />
               </div>
 
-              <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
-                <span>{progressInfo.overallProgress.toFixed(1)}% complete</span>
+              <div className="flex items-center justify-between text-[11px] text-slate-400 tabular-nums">
+                <span className="text-cyan-300 font-semibold">
+                  {progressInfo.overallProgress.toFixed(1)}% STREAMED
+                </span>
                 <span>
                   {formatBytes(progressInfo.totalBytesReceived)} of {formatBytes(progressInfo.totalSize)}
                 </span>
               </div>
             </div>
 
-            {/* Stream Controls */}
+            {/* Pull-Based Stream Controls */}
             <div className="flex items-center gap-3 pt-2">
               {isPaused ? (
                 <button
                   type="button"
                   onClick={handleResume}
-                  className="px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-semibold text-xs flex items-center gap-2 transition shadow-md shadow-brand-600/30"
+                  className="px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-mono font-semibold text-xs flex items-center gap-2 transition shadow-md shadow-brand-600/30"
                 >
                   <Play className="w-3.5 h-3.5" />
                   <span>Resume Streaming</span>
@@ -396,35 +439,35 @@ function ReceiverPageContent() {
                 <button
                   type="button"
                   onClick={handlePause}
-                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs flex items-center gap-2 border border-slate-700 transition"
+                  className="px-4 py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-slate-200 font-mono font-semibold text-xs flex items-center gap-2 border border-white/[0.1] transition"
                 >
                   <Pause className="w-3.5 h-3.5" />
                   <span>Pause</span>
                 </button>
               )}
-              <span className="text-xs text-slate-500 italic">
-                Pull-based byte offset guarantees zero data corruption on pause/resume.
+              <span className="text-[11px] text-slate-500 font-mono italic">
+                Pull-based byte offsets guarantee zero data corruption on pause/resume.
               </span>
             </div>
           </div>
         )}
 
-        {/* Transfer Complete Celebration */}
+        {/* Transfer Complete Celebration Card */}
         {isCompleted && (
-          <div className="p-6 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-center space-y-3 animate-in fade-in zoom-in-95 duration-300">
-            <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto">
+          <div className="p-6 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 text-center space-y-3 animate-in fade-in zoom-in-95 duration-300 shadow-[0_0_30px_rgba(16,185,129,0.15)]">
+            <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto border border-emerald-500/30">
               <CheckCircle2 className="w-6 h-6" />
             </div>
-            <h3 className="text-lg font-bold text-emerald-200">
+            <h3 className="text-xl font-bold font-sans text-emerald-200">
               Transfer Completed Successfully!
             </h3>
-            <p className="text-xs text-emerald-300/80 max-w-sm mx-auto">
-              All {manifestFiles.length} {manifestFiles.length === 1 ? "file was" : "files were"} streamed directly to your local disk without cloud storage or RAM buildup.
+            <p className="text-xs text-emerald-300/80 max-w-md mx-auto font-mono leading-relaxed">
+              All {manifestFiles.length} {manifestFiles.length === 1 ? "file was" : "files were"} streamed directly to your local disk with zero memory buildup or cloud intermediate storage.
             </p>
             <div className="pt-2">
               <Link
                 href="/"
-                className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-lg shadow-emerald-600/20 inline-block"
+                className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-mono font-bold transition shadow-lg shadow-emerald-600/25 inline-block"
               >
                 Send Files Yourself
               </Link>
@@ -432,54 +475,75 @@ function ReceiverPageContent() {
           </div>
         )}
 
-        {/* File Manifest List */}
+        {/* Incoming Session Manifest with Per-File Progress & Telemetry */}
         {manifestFiles.length > 0 && (
-          <div className="space-y-3">
-            <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-              File Manifest ({manifestFiles.length})
-            </h4>
+          <div className="space-y-3 font-mono">
+            <div className="flex items-center justify-between pb-1 text-xs">
+              <span className="text-slate-400 font-bold uppercase tracking-wider text-[11px]">
+                INCOMING FILE MANIFEST ({manifestFiles.length})
+              </span>
+              <span className="text-[10px] text-slate-500">
+                12-BYTE CHUNK INDEXING
+              </span>
+            </div>
 
-            <div className="divide-y divide-slate-800/80 border border-slate-800 rounded-xl max-h-72 overflow-y-auto bg-slate-950/40">
+            <div className="divide-y divide-white/[0.06] border border-white/[0.08] rounded-xl max-h-72 overflow-y-auto bg-black/50">
               {manifestFiles.map((file) => {
                 const isFinished = completedFileIndices.has(file.index);
-                const isCurrent =
-                  progressInfo?.fileIndex === file.index && isDownloading;
+                const isCurrent = progressInfo?.fileIndex === file.index && isDownloading;
+                const fileProgress = isFinished
+                  ? 100
+                  : isCurrent && progressInfo
+                  ? Math.min(100, (progressInfo.fileBytesReceived / file.size) * 100)
+                  : 0;
 
                 return (
                   <div
                     key={file.index}
-                    className={`p-3 flex items-center justify-between text-xs transition ${
-                      isCurrent
-                        ? "bg-brand-500/10"
-                        : "hover:bg-slate-900/50"
+                    className={`p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs transition ${
+                      isCurrent ? "bg-cyan-950/30" : "hover:bg-white/[0.02]"
                     }`}
                   >
                     <div className="flex items-center gap-3 min-w-0 pr-2">
-                      {getFileIcon(file.mimeType, file.name)}
+                      <span className="px-1.5 py-0.5 rounded bg-cyan-950/40 text-cyan-300 border border-cyan-500/25 text-[10px] tabular-nums font-bold shrink-0">
+                        [SLOT #{file.index.toString().padStart(2, "0")}]
+                      </span>
+                      <div className="shrink-0">
+                        {getFileIcon(file.mimeType, file.name)}
+                      </div>
                       <div className="truncate">
-                        <p className="font-medium text-slate-200 truncate">
+                        <p className="font-medium text-slate-200 truncate group-hover:text-cyan-200">
                           {file.relativePath || file.name}
                         </p>
-                        <p className="text-[11px] text-slate-500 font-mono">
-                          {formatBytes(file.size)}
+                        <p className="text-[10px] text-slate-500 tabular-nums mt-0.5">
+                          {formatBytes(file.size)} &bull; {Math.ceil(file.size / 65536).toLocaleString()} slices (64 KB)
                         </p>
                       </div>
                     </div>
 
-                    <div>
+                    <div className="flex items-center gap-3 shrink-0 self-end sm:self-auto">
+                      {isCurrent && (
+                        <div className="w-24 bg-black/60 rounded-full h-1.5 overflow-hidden border border-white/[0.1] hidden sm:block">
+                          <div
+                            className="bg-cyan-400 h-full rounded-full transition-all"
+                            style={{ width: `${fileProgress}%` }}
+                          />
+                        </div>
+                      )}
+
                       {isFinished ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400">
+                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400">
                           <CheckCircle2 className="w-3.5 h-3.5" />
-                          Saved
+                          <span>Saved to Disk</span>
                         </span>
                       ) : isCurrent ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-400 animate-pulse">
+                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-cyan-300 animate-pulse">
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          Streaming...
+                          <span>Streaming ({fileProgress.toFixed(0)}%)</span>
                         </span>
                       ) : (
                         <span className="text-[11px] text-slate-500">
-                          Pending
+                          Queued
                         </span>
                       )}
                     </div>
@@ -490,19 +554,19 @@ function ReceiverPageContent() {
           </div>
         )}
 
-        {/* Primary Action Button (When not downloading and not finished) */}
+        {/* Primary Action Button (Save Directly to Disk & Start Stream) */}
         {!isDownloading && !isCompleted && manifestFiles.length > 0 && !hostDisconnected && (
           <div className="pt-2">
             <button
               type="button"
               onClick={handleStartDownload}
-              className="w-full py-4 px-6 rounded-xl bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white font-bold text-sm flex items-center justify-center gap-3 transition shadow-xl shadow-brand-500/25 transform active:scale-[0.99]"
+              className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-brand-600 via-indigo-600 to-[#00F0FF] hover:opacity-95 text-white font-mono font-bold text-sm tracking-wide flex items-center justify-center gap-3 transition shadow-[0_0_25px_rgba(0,240,255,0.25)] transform active:scale-[0.99]"
             >
-              <HardDrive className="w-5 h-5" />
-              <span>Save Directly to Disk & Start Stream</span>
+              <HardDrive className="w-5 h-5 text-white" />
+              <span>SAVE DIRECTLY TO DISK & START STREAM</span>
             </button>
-            <p className="text-center text-[11px] text-slate-500 mt-2">
-              Opens OS native file save handle &bull; Zero memory accumulation
+            <p className="text-center text-[11px] font-mono text-slate-500 mt-2">
+              Prompts OS native file save handle &bull; Zero memory accumulation &bull; Direct pipe to disk
             </p>
           </div>
         )}
@@ -514,17 +578,17 @@ function ReceiverPageContent() {
 function ReceiverLoadingFallback() {
   return (
     <div className="max-w-3xl mx-auto px-4 py-8 sm:py-12 animate-in fade-in duration-300">
-      <div className="bg-surface-card border border-surface-border rounded-2xl p-6 sm:p-8 shadow-2xl space-y-6">
+      <div className="frosted-carbon border border-white/[0.08] rounded-2xl p-6 sm:p-8 shadow-2xl space-y-6">
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-surface-elevated flex items-center justify-center text-primary">
+          <div className="w-12 h-12 rounded-2xl bg-cyan-950/40 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
             <Loader2 className="w-6 h-6 animate-spin" />
           </div>
           <div className="space-y-1.5">
-            <div className="h-5 w-48 bg-surface-elevated rounded animate-pulse" />
-            <div className="h-3.5 w-32 bg-surface-elevated/60 rounded animate-pulse" />
+            <div className="h-5 w-48 bg-white/[0.1] rounded animate-pulse" />
+            <div className="h-3.5 w-32 bg-white/[0.05] rounded animate-pulse" />
           </div>
         </div>
-        <div className="h-28 bg-surface-elevated/40 rounded-xl border border-surface-border/50 animate-pulse" />
+        <div className="h-28 bg-black/40 rounded-xl border border-white/[0.06] animate-pulse" />
       </div>
     </div>
   );
@@ -537,4 +601,3 @@ export default function ReceiverPage() {
     </Suspense>
   );
 }
-

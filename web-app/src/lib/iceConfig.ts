@@ -1,4 +1,4 @@
-import { PeerConnectionMode } from "@/types/protocol";
+import { PeerConnectionMode, NatTraversalTier } from "@/types/protocol";
 
 export function getRtcConfiguration(): RTCConfiguration {
   const iceServers: RTCIceServer[] = [];
@@ -80,12 +80,14 @@ export async function fetchRtcConfiguration(): Promise<RTCConfiguration> {
 }
 
 /**
- * Inspects WebRTC active candidate pair stats to determine whether the link
- * is Direct P2P (host / srflx) or relayed through a TURN server.
+ * Inspects WebRTC active candidate pair stats to classify the active NAT traversal tier:
+ * Tier 1: LAN Direct (host candidates)
+ * Tier 2: STUN Hole-Punching (srflx / prflx candidates)
+ * Tier 3: TURN 5G Relay (relay candidates)
  */
-export async function detectConnectionMode(
+export async function detectConnectionTier(
   pc: RTCPeerConnection
-): Promise<PeerConnectionMode> {
+): Promise<NatTraversalTier> {
   try {
     const stats = await pc.getStats();
     let activeCandidatePair: any = null;
@@ -106,25 +108,48 @@ export async function detectConnectionMode(
     const localCand = stats.get(activeCandidatePair.localCandidateId);
     const remoteCand = stats.get(activeCandidatePair.remoteCandidateId);
 
+    // Tier 3: Relay (TURN 5G CGNAT traversal)
     if (
       localCand?.candidateType === "relay" ||
       remoteCand?.candidateType === "relay"
     ) {
-      return "relay";
+      return "tier3_turn";
     }
 
+    // Tier 2: STUN public hole-punching
+    if (
+      localCand?.candidateType === "srflx" ||
+      localCand?.candidateType === "prflx" ||
+      remoteCand?.candidateType === "srflx" ||
+      remoteCand?.candidateType === "prflx"
+    ) {
+      return "tier2_stun";
+    }
+
+    // Tier 1: Direct Private LAN / Localhost
     if (
       localCand?.candidateType === "host" ||
-      localCand?.candidateType === "srflx" ||
-      localCand?.candidateType === "prflx"
+      remoteCand?.candidateType === "host"
     ) {
-      return "p2p";
+      return "tier1_lan";
     }
 
-    return "p2p";
+    return "tier2_stun";
   } catch (err) {
     console.warn("Failed to inspect RTC stats:", err);
     return "unknown";
   }
 }
 
+/**
+ * Inspects WebRTC active candidate pair stats to determine whether the link
+ * is Direct P2P (host / srflx) or relayed through a TURN server.
+ */
+export async function detectConnectionMode(
+  pc: RTCPeerConnection
+): Promise<PeerConnectionMode> {
+  const tier = await detectConnectionTier(pc);
+  if (tier === "tier3_turn") return "relay";
+  if (tier === "tier1_lan" || tier === "tier2_stun") return "p2p";
+  return "unknown";
+}

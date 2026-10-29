@@ -9,10 +9,15 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        background: "#090d16",
-        surface: "#0f172a",
-        "surface-card": "#151f38",
-        "surface-border": "#1e293b",
+        background: "#06070A",
+        surface: "#0F121A",
+        "surface-card": "#131722",
+        "surface-border": "rgba(255, 255, 255, 0.08)",
+        carbon: {
+          DEFAULT: "#0F121A",
+          surface: "rgba(15, 18, 26, 0.75)",
+          border: "rgba(255, 255, 255, 0.08)",
+        },
         brand: {
           50: "#eef2ff",
           100: "#e0e7ff",
@@ -27,10 +32,20 @@ const config: Config = {
         },
       },
       fontFamily: {
-        mono: ["var(--font-mono)", "Menlo", "Consolas", "Courier New", "monospace"],
+        sans: ["var(--font-space-grotesk)", "system-ui", "-apple-system", "sans-serif"],
+        mono: [
+          "var(--font-jetbrains-mono)",
+          "var(--font-mono)",
+          "ui-monospace",
+          "Menlo",
+          "Consolas",
+          "Courier New",
+          "monospace",
+        ],
       },
       animation: {
         "pulse-slow": "pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+        "ping-slow": "ping 2.5s cubic-bezier(0, 0, 0.2, 1) infinite",
       },
     },
   },
@@ -38,4 +53,3 @@ const config: Config = {
 };
 
 export default config;
-

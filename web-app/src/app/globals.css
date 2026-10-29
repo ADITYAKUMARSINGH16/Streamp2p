@@ -3,14 +3,63 @@
 @tailwind utilities;
 
 :root {
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace;
 }
 
 body {
-  background-color: #090d16;
-  color: #f8fafc;
+  background-color: #06070A;
+  color: #f1f5f9;
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   min-height: 100vh;
+}
+
+/* Enforce tabular-nums on all monospace telemetry and numeric classes to eliminate horizontal jitter */
+.font-mono,
+[data-telemetry],
+.telemetry-metrics,
+.tabular-nums {
+  font-family: var(--font-jetbrains-mono), var(--font-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* Frosted Carbon Glassmorphism Surface */
+.frosted-carbon {
+  background-color: rgba(15, 18, 26, 0.75);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.frosted-carbon-hover {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.frosted-carbon-hover:hover {
+  background-color: rgba(22, 27, 38, 0.85);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+/* Radial Dot-Matrix Grid Overlay */
+.bg-grid-dots {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* Horizontal Shake Animation for Invalid Auth Challenge Attempts */
+@keyframes airlock-shake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  15%, 45%, 75% {
+    transform: translateX(-6px);
+  }
+  30%, 60%, 90% {
+    transform: translateX(6px);
+  }
+}
+
+.animate-airlock-shake {
+  animation: airlock-shake 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
 }
 
 /* Custom sleek scrollbar */
@@ -20,15 +69,14 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #090d16;
+  background: #06070A;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #1e293b;
+  background: #1a2030;
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+  background: #2a344a;
 }
-

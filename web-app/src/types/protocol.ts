@@ -38,6 +38,12 @@ export type ControlMessage =
 
 export type PeerConnectionMode = "p2p" | "relay" | "unknown";
 
+export type NatTraversalTier =
+  | "tier1_lan"
+  | "tier2_stun"
+  | "tier3_turn"
+  | "unknown";
+
 export type PeerTransferStatus =
   | "connecting"
   | "authenticating"
@@ -51,6 +57,9 @@ export interface PeerTransferState {
   peerId: string;
   status: PeerTransferStatus;
   connectionType: PeerConnectionMode;
+  natTier?: NatTraversalTier;
+  bufferedAmount?: number;
+  isValvePaused?: boolean;
   fileIndex: number;
   byteOffset: number;
   bytesPerSecond: number;
@@ -66,4 +75,3 @@ export const BINARY_HEADER_SIZE = 12; // 4 bytes (Uint32 fileIndex) + 8 bytes (F
 export const CHUNK_SIZE = 65536; // 64 KB
 export const BUFFERED_AMOUNT_LOW_THRESHOLD = 65536; // 64 KB
 export const BUFFERED_AMOUNT_HIGH_WATERMARK = 262144; // 256 KB
-

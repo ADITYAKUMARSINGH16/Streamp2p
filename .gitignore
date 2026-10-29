@@ -61,3 +61,7 @@ coverage/
 turnserver.log*
 *.sqlite
 
+# 8. Local Documentation & AI Context
+PROJECT_CONTEXT.md
+.PROJECT_CONTEXT.md
+

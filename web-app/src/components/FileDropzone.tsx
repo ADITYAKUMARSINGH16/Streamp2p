@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useMemo } from "react";
 import {
   UploadCloud,
   File,
@@ -12,13 +12,65 @@ import {
   Code,
   X,
   FolderUp,
+  ShieldCheck,
+  Plus,
+  Trash2,
+  Cpu,
 } from "lucide-react";
 import { formatBytes } from "@/lib/formatters";
+import { CHUNK_SIZE, BINARY_HEADER_SIZE } from "@/types/protocol";
 
 interface FileDropzoneProps {
   files: File[];
   onFilesChanged: (files: File[]) => void;
   disabled?: boolean;
+}
+
+/**
+ * Traverses entries dropped into the dropzone to support complete folder trees
+ * without ever buffering file data into RAM.
+ */
+async function traverseEntry(entry: any, path = ""): Promise<File[]> {
+  if (entry.isFile) {
+    return new Promise((resolve) => {
+      entry.file(
+        (file: File) => {
+          if (path) {
+            Object.defineProperty(file, "webkitRelativePath", {
+              value: path + file.name,
+              writable: false,
+              configurable: true,
+            });
+          }
+          resolve([file]);
+        },
+        () => resolve([])
+      );
+    });
+  } else if (entry.isDirectory) {
+    const dirReader = entry.createReader();
+    const readAllEntries = async (): Promise<any[]> => {
+      const all: any[] = [];
+      let batch: any[];
+      do {
+        batch = await new Promise((resolve) => {
+          dirReader.readEntries(
+            (entries: any[]) => resolve(entries || []),
+            () => resolve([])
+          );
+        });
+        all.push(...batch);
+      } while (batch.length > 0);
+      return all;
+    };
+
+    const entries = await readAllEntries();
+    const nested = await Promise.all(
+      entries.map((child) => traverseEntry(child, `${path}${entry.name}/`))
+    );
+    return nested.flat();
+  }
+  return [];
 }
 
 export function FileDropzone({
@@ -61,20 +113,45 @@ export function FileDropzone({
 
   const handleFilesAdded = (newFileList: FileList | File[]) => {
     const addedArray = Array.from(newFileList);
-    // Deduplicate by name and size
+    // Deduplicate by name and size while preserving handles without loading to memory
     const merged = [...files];
     for (const newFile of addedArray) {
-      if (!merged.some((f) => f.name === newFile.name && f.size === newFile.size)) {
+      const relativePath = (newFile as any).webkitRelativePath || newFile.name;
+      if (
+        !merged.some(
+          (f) =>
+            ((f as any).webkitRelativePath || f.name) === relativePath &&
+            f.size === newFile.size
+        )
+      ) {
         merged.push(newFile);
       }
     }
     onFilesChanged(merged);
   };
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
     if (disabled) return;
+
+    // Check for directory item support via webkitGetAsEntry
+    const items = e.dataTransfer.items;
+    if (items && items.length > 0 && typeof (items[0] as any).webkitGetAsEntry === "function") {
+      const promises: Promise<File[]>[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const entry = (items[i] as any).webkitGetAsEntry();
+        if (entry) {
+          promises.push(traverseEntry(entry));
+        }
+      }
+      const resolved = await Promise.all(promises);
+      const flattened = resolved.flat();
+      if (flattened.length > 0) {
+        handleFilesAdded(flattened);
+        return;
+      }
+    }
 
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       handleFilesAdded(e.dataTransfer.files);
@@ -87,11 +164,29 @@ export function FileDropzone({
     onFilesChanged(updated);
   };
 
-  const totalSize = files.reduce((acc, f) => acc + f.size, 0);
+  // 64 KB Binary Protocol Math (Computed strictly from file metadata)
+  const totalBytes = useMemo(
+    () => files.reduce((acc, f) => acc + f.size, 0),
+    [files]
+  );
+
+  const totalSlices = useMemo(() => {
+    if (totalBytes === 0) return files.length > 0 ? files.length : 0;
+    return Math.ceil(totalBytes / CHUNK_SIZE);
+  }, [totalBytes, files.length]);
+
+  const totalHeaderOverhead = useMemo(
+    () => totalSlices * BINARY_HEADER_SIZE,
+    [totalSlices]
+  );
+
+  const getFileSlices = (file: File) => {
+    return file.size === 0 ? 1 : Math.ceil(file.size / CHUNK_SIZE);
+  };
 
   return (
     <div className="w-full space-y-4">
-      {/* Hidden Inputs */}
+      {/* Hidden Native File & Folder Inputs */}
       <input
         type="file"
         ref={fileInputRef}
@@ -117,7 +212,7 @@ export function FileDropzone({
         }}
       />
 
-      {/* Drop Target Box */}
+      {/* 1. Interactive Gravity Well Dropzone with Zero-G Warp Reactive State */}
       <div
         onDragOver={(e) => {
           e.preventDefault();
@@ -126,31 +221,56 @@ export function FileDropzone({
         onDragLeave={() => setIsDragOver(false)}
         onDrop={handleDrop}
         onClick={() => !disabled && fileInputRef.current?.click()}
-        className={`relative border-2 border-dashed rounded-2xl p-8 text-center transition-all cursor-pointer select-none ${
+        className={`relative rounded-2xl p-8 sm:p-10 text-center transition-all duration-300 cursor-pointer select-none overflow-hidden ${
           disabled
-            ? "border-slate-800 bg-slate-950/40 opacity-70 cursor-not-allowed"
+            ? "border-2 border-dashed border-white/[0.05] bg-black/20 opacity-60 cursor-not-allowed"
             : isDragOver
-            ? "border-brand-500 bg-brand-500/10 scale-[1.01]"
-            : "border-slate-800 hover:border-brand-500/50 bg-slate-900/40 hover:bg-slate-900/70"
+            ? "border-2 border-[#00F0FF] bg-[#00F0FF]/[0.08] shadow-[0_0_40px_rgba(0,240,255,0.35)] scale-[1.01]"
+            : "border-2 border-dashed border-white/[0.1] hover:border-[#00F0FF]/50 bg-black/40 hover:bg-black/60 shadow-lg"
         }`}
       >
-        <div className="flex flex-col items-center justify-center space-y-3">
-          <div
-            className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-colors ${
-              isDragOver
-                ? "bg-brand-500 text-white shadow-lg shadow-brand-500/30"
-                : "bg-surface-card text-brand-400 border border-slate-800"
-            }`}
-          >
-            <UploadCloud className="w-8 h-8" />
+        {/* Zero-G Warp Background Accents */}
+        <div
+          className={`absolute inset-0 bg-grid-dots transition-opacity pointer-events-none ${
+            isDragOver ? "opacity-60 [mask-image:radial-gradient(ellipse_at_center,black_70%,transparent_95%)]" : "opacity-20"
+          }`}
+        />
+
+        {isDragOver && (
+          <>
+            {/* Animated expanding orbital ring */}
+            <div className="absolute inset-0 rounded-2xl border-2 border-[#00F0FF]/40 animate-ping pointer-events-none" />
+            <div className="absolute -inset-2 rounded-2xl bg-gradient-to-r from-[#00F0FF]/25 via-indigo-500/20 to-[#00F0FF]/25 blur-xl pointer-events-none" />
+          </>
+        )}
+
+        <div className="relative z-10 flex flex-col items-center justify-center space-y-3.5">
+          {/* Gravitational Dock Core Icon with orbital spinner */}
+          <div className="relative">
+            <div
+              className={`w-16 h-16 sm:w-18 sm:h-18 rounded-2xl flex items-center justify-center transition-all duration-300 ${
+                isDragOver
+                  ? "bg-[#00F0FF] text-black shadow-[0_0_30px_#00F0FF] scale-110 rotate-1"
+                  : "bg-surface-card text-cyan-400 border border-white/[0.08] shadow-[0_0_15px_rgba(0,240,255,0.15)]"
+              }`}
+            >
+              <UploadCloud className="w-8 h-8" />
+            </div>
+
+            {isDragOver && (
+              <div
+                className="absolute -inset-3 rounded-full border-2 border-[#00F0FF]/60 border-t-transparent animate-spin pointer-events-none"
+                style={{ animationDuration: "3s" }}
+              />
+            )}
           </div>
 
           <div>
-            <h3 className="text-lg font-semibold text-slate-100">
-              Drag & Drop files or folders here
+            <h3 className="text-lg sm:text-xl font-bold text-slate-100 tracking-tight font-sans">
+              {isDragOver ? "Zero-G Gravity Field Engaged" : "Magnetic Zero-G Staging Dock"}
             </h3>
-            <p className="text-sm text-slate-400 mt-1">
-              Direct streaming from your browser disk &bull; No file size limits &bull; Zero server storage
+            <p className="text-xs sm:text-sm text-slate-400 mt-1 max-w-lg mx-auto">
+              Drag & drop files or full folders here &bull; Streamed directly from disk &bull; Zero server storage
             </p>
           </div>
 
@@ -162,7 +282,7 @@ export function FileDropzone({
               type="button"
               disabled={disabled}
               onClick={() => fileInputRef.current?.click()}
-              className="px-4 py-2 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
+              className="px-4 py-2 text-xs font-mono font-medium rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-slate-200 border border-white/[0.1] hover:border-cyan-400/40 hover:text-white transition shadow-sm"
             >
               Browse Files
             </button>
@@ -170,7 +290,7 @@ export function FileDropzone({
               type="button"
               disabled={disabled}
               onClick={() => folderInputRef.current?.click()}
-              className="px-4 py-2 text-xs font-medium rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-200 border border-slate-700/80 transition flex items-center gap-1.5"
+              className="px-4 py-2 text-xs font-mono font-medium rounded-xl bg-cyan-950/30 hover:bg-cyan-900/40 text-cyan-300 border border-cyan-500/30 transition flex items-center gap-1.5 shadow-sm"
             >
               <FolderUp className="w-3.5 h-3.5" />
               Upload Folder
@@ -179,63 +299,130 @@ export function FileDropzone({
         </div>
       </div>
 
-      {/* Selected File Manifest List */}
+      {/* 2. Live 64 KB Protocol Math Summary Bar */}
       {files.length > 0 && (
-        <div className="bg-surface-card border border-surface-border rounded-xl p-4 shadow-xl">
-          <div className="flex items-center justify-between pb-3 border-b border-surface-border text-sm">
+        <div className="frosted-carbon rounded-xl p-3.5 border border-white/[0.08] shadow-lg">
+          <div className="flex flex-wrap items-center justify-between gap-2.5 pb-2.5 border-b border-white/[0.06]">
             <div className="flex items-center gap-2">
-              <span className="font-semibold text-slate-200">
-                Staged Manifest ({files.length} {files.length === 1 ? "file" : "files"})
-              </span>
-              <span className="text-xs px-2 py-0.5 rounded-full bg-brand-500/20 text-brand-300 font-mono">
-                {formatBytes(totalSize)}
+              <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+              <span className="text-xs font-mono font-bold tracking-wider uppercase text-slate-200">
+                PROTOCOL TELEMETRY SPEC // 64 KB SLICES
               </span>
             </div>
+            <div
+              className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 shadow-[0_0_10px_rgba(16,185,129,0.15)]"
+              title="Browser RAM stays bounded under 256 KB SCTP high watermark regardless of file size"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+              <span>RAM BUFFER: &lt; 256 KB SCTP HIGH-WATERMARK</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-2.5 text-xs font-mono tabular-nums">
+            <div className="bg-black/40 border border-white/[0.06] rounded-lg p-2.5 flex flex-col">
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider">Total Payload</span>
+              <span className="text-sm font-semibold text-slate-100 mt-0.5">{formatBytes(totalBytes)}</span>
+            </div>
+            <div className="bg-black/40 border border-white/[0.06] rounded-lg p-2.5 flex flex-col">
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider">64 KB Slices</span>
+              <span className="text-sm font-semibold text-cyan-400 mt-0.5">
+                {totalSlices.toLocaleString()} Chunks
+              </span>
+            </div>
+            <div className="col-span-2 sm:col-span-1 bg-black/40 border border-white/[0.06] rounded-lg p-2.5 flex flex-col">
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider">12B Frame Overhead</span>
+              <span className="text-sm font-semibold text-indigo-300 mt-0.5">
+                +{formatBytes(totalHeaderOverhead)}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3. Tactile File Manifest Cards */}
+      {files.length > 0 && (
+        <div className="frosted-carbon rounded-xl border border-white/[0.08] p-4 shadow-xl space-y-3">
+          <div className="flex items-center justify-between pb-2.5 border-b border-white/[0.06] text-xs">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-slate-200 uppercase tracking-wider text-[11px] font-mono">
+                STAGED MANIFEST
+              </span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 font-mono tabular-nums">
+                {files.length} {files.length === 1 ? "FILE" : "FILES"}
+              </span>
+            </div>
+
             {!disabled && (
-              <button
-                type="button"
-                onClick={() => onFilesChanged([])}
-                className="text-xs text-rose-400 hover:text-rose-300 transition"
-              >
-                Clear all
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-2.5 py-1 text-[11px] font-mono rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-cyan-300 border border-white/[0.08] hover:border-cyan-500/30 transition flex items-center gap-1"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>+ Add More Files</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onFilesChanged([])}
+                  className="px-2.5 py-1 text-[11px] font-mono rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 transition flex items-center gap-1"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  <span>Clear Manifest</span>
+                </button>
+              </div>
             )}
           </div>
 
-          <div className="max-h-60 overflow-y-auto divide-y divide-slate-800/50 mt-2 pr-1">
-            {files.map((file, idx) => (
-              <div
-                key={`${file.name}-${idx}`}
-                className="py-2.5 flex items-center justify-between text-xs text-slate-300 group hover:bg-slate-800/30 px-2 rounded-lg transition"
-              >
-                <div className="flex items-center gap-3 min-w-0 pr-2">
-                  {getFileIcon(file)}
-                  <div className="truncate">
-                    <p className="font-medium text-slate-200 truncate">
-                      {(file as any).webkitRelativePath || file.name}
-                    </p>
-                    <p className="text-[11px] text-slate-500 font-mono">
-                      {formatBytes(file.size)}
-                    </p>
-                  </div>
-                </div>
+          <div className="max-h-64 overflow-y-auto space-y-1.5 pr-1">
+            {files.map((file, idx) => {
+              const slices = getFileSlices(file);
+              return (
+                <div
+                  key={`${(file as any).webkitRelativePath || file.name}-${idx}`}
+                  className="p-2.5 rounded-lg bg-black/40 hover:bg-black/60 border border-white/[0.06] hover:border-cyan-500/30 flex items-center justify-between text-xs transition group"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                    {/* Zero-based fileIndex slot matching Bytes 0..3 of 12-byte binary frame */}
+                    <span
+                      className="px-1.5 py-0.5 rounded bg-cyan-950/40 text-cyan-400 border border-cyan-500/25 font-mono text-[10px] tabular-nums shrink-0 font-semibold"
+                      title={`Bytes 0..3 Uint32 fileIndex: ${idx}`}
+                    >
+                      [SLOT {idx.toString().padStart(2, "0")}]
+                    </span>
 
-                {!disabled && (
-                  <button
-                    type="button"
-                    onClick={() => removeFile(idx)}
-                    className="p-1 rounded-md text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition opacity-0 group-hover:opacity-100"
-                    title="Remove file"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-            ))}
+                    <div className="shrink-0">{getFileIcon(file)}</div>
+
+                    <div className="truncate">
+                      <p className="font-medium text-slate-200 truncate group-hover:text-cyan-200 transition-colors">
+                        {(file as any).webkitRelativePath || file.name}
+                      </p>
+                      <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono tabular-nums mt-0.5">
+                        <span>{formatBytes(file.size)}</span>
+                        <span>&bull;</span>
+                        <span className="text-cyan-400/90">
+                          {slices.toLocaleString()} {slices === 1 ? "slice" : "slices"} (64 KB)
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {!disabled && (
+                    <button
+                      type="button"
+                      onClick={() => removeFile(idx)}
+                      className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition opacity-70 group-hover:opacity-100 shrink-0"
+                      title="Remove file from manifest"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
     </div>
   );
 }
-

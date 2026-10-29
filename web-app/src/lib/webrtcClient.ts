@@ -32,6 +32,7 @@ export interface WebRtcClientCallbacks {
   onTransferComplete: () => void;
   onHostDisconnected: () => void;
   onError: (err: string) => void;
+  onIceStateChange?: (state: RTCIceConnectionState) => void;
 }
 
 export class WebRtcClientEngine {
@@ -182,15 +183,32 @@ export class WebRtcClientEngine {
       }
     };
 
+    let disconnectGraceTimer: any = null;
     this.pc.oniceconnectionstatechange = () => {
       if (this.pc) {
-        console.log(`[Client] ICE Connection State: ${this.pc.iceConnectionState}`);
-        if (
-          this.pc.iceConnectionState === "disconnected" ||
-          this.pc.iceConnectionState === "failed" ||
-          this.pc.iceConnectionState === "closed"
-        ) {
-          this.callbacks.onStatusChange("Connection lost");
+        const iceState = this.pc.iceConnectionState;
+        console.log(`[Client] ICE Connection State: ${iceState}`);
+        this.callbacks.onIceStateChange?.(iceState);
+
+        if (iceState === "connected" || iceState === "completed") {
+          if (disconnectGraceTimer) {
+            clearTimeout(disconnectGraceTimer);
+            disconnectGraceTimer = null;
+          }
+          this.callbacks.onStatusChange("P2P Link connected");
+        } else if (iceState === "disconnected") {
+          // 10-second grace period for mobile/5G handoff & TURN re-binding
+          this.callbacks.onStatusChange("Re-binding connection...");
+          if (!disconnectGraceTimer) {
+            disconnectGraceTimer = setTimeout(() => {
+              if (this.pc && this.pc.iceConnectionState === "disconnected") {
+                this.callbacks.onStatusChange("Connection lost after grace period");
+              }
+            }, 10000);
+          }
+        } else if (iceState === "failed" || iceState === "closed") {
+          if (disconnectGraceTimer) clearTimeout(disconnectGraceTimer);
+          this.callbacks.onStatusChange("Connection closed");
         }
       }
     };
