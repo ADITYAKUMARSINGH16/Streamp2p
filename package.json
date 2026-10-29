@@ -1,0 +1,19 @@
+{
+  "name": "p2p-file-streamer-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Zero-Storage Real-Time P2P File Streamer",
+  "scripts": {
+    "dev": "npm run dev --prefix web-app",
+    "tunnel": "node scripts/tunnel.js",
+    "tunnel:pinggy": "ssh -p 443 -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -R0:127.0.0.1:3000 a.pinggy.io",
+    "tunnel:lt": "node scripts/tunnel.js --provider=localtunnel",
+    "build": "npm run build --prefix web-app",
+    "start": "npm run start --prefix web-app",
+    "prod": "npm run build && npm run start"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "localtunnel": "^2.0.2"
+  }
+}

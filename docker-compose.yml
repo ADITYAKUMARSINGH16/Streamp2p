@@ -1,0 +1,36 @@
+version: "3.9"
+
+services:
+  # 1. WebSocket Signaling Server (Zero file storage)
+  signaling-server:
+    build: ./signaling-server
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      - PORT=4000
+      - CORS_ORIGIN=*
+
+  # 2. Next.js Frontend Web App
+  web-app:
+    build: ./web-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_SIGNALING_URL=http://localhost:4000
+      - NEXT_PUBLIC_STUN_URL=stun:stun.l.google.com:19302
+      - NEXT_PUBLIC_TURN_URL=turn:localhost:3478
+      - NEXT_PUBLIC_TURN_USERNAME=p2puser
+      - NEXT_PUBLIC_TURN_CREDENTIAL=supersecretturnpass
+    depends_on:
+      - signaling-server
+
+  # 3. Coturn STUN/TURN Relay Server (For strict firewalls & symmetric NATs)
+  coturn:
+    image: coturn/coturn:latest
+    restart: unless-stopped
+    network_mode: "host"
+    volumes:
+      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
+
