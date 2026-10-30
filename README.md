@@ -233,4 +233,4 @@ This guarantees that in-flight chunks do not corrupt disk writes when pausing, r
 ---
 
 ## 📄 License
-MIT © [singh](https://github.com/)
+MIT © [Aditya Kumar singh](https://github.com/)
